@@ -1,0 +1,221 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>EduCRUD</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+</head>
+<body class="bg-[#f8fcfa] font-sans min-h-screen">
+  <div class="max-w-6xl mx-auto p-6">
+    <header class="flex justify-between items-center mb-8">
+      <h1 class="text-3xl font-bold text-[#0c1c17]">EduCRUD App</h1>
+    </header>
+
+    <!-- Form Card -->
+    <div class="bg-white p-6 rounded-2xl shadow mb-10">
+      <h2 class="text-2xl font-semibold mb-1">Entry Form</h2>
+      <p class="text-sm text-[#46a080] mb-4">Fill in the details below to create or update an entry.</p>
+
+      <form id="entryForm" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block mb-1 font-medium">Name</label>
+          <input id="name" name="name" type="text" placeholder="Enter name" class="w-full rounded-lg bg-[#e6f4ef] p-3" />
+        </div>
+        <div>
+          <label class="block mb-1 font-medium">Email</label>
+          <input id="email" name="email" type="email" placeholder="Enter email" class="w-full rounded-lg bg-[#e6f4ef] p-3" />
+        </div>
+        <div>
+          <label class="block mb-1 font-medium">Phone</label>
+          <input id="phone" name="phone" type="tel" placeholder="Enter phone" class="w-full rounded-lg bg-[#e6f4ef] p-3" />
+        </div>
+        <div>
+          <label class="block mb-1 font-medium">Status</label>
+          <select id="status" name="status" class="w-full rounded-lg bg-[#e6f4ef] p-3">
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </div>
+        <div class="md:col-span-2">
+          <label class="block mb-1 font-medium">Description</label>
+          <textarea id="description" name="description" placeholder="Enter description" class="w-full rounded-lg bg-[#e6f4ef] p-3 min-h-[100px]"></textarea>
+        </div>
+
+        <div class="md:col-span-2 flex justify-between mt-2">
+          <button id="submitBtn" type="submit" class="bg-[#019863] text-white px-6 py-2 rounded-lg font-bold">Submit</button>
+          <button id="clearBtn" type="button" class="bg-red-500 text-white px-6 py-2 rounded-lg font-bold">Clear Form</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Entries Table -->
+    <div class="bg-white p-6 rounded-2xl shadow">
+      <h2 class="text-2xl font-semibold mb-4">Entries</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full table-auto border-collapse">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="text-left p-3">Name</th>
+              <th class="text-left p-3">Email</th>
+              <th class="text-left p-3">Phone</th>
+              <th class="text-left p-3">Status</th>
+              <th class="text-left p-3">Actions</th>
+
+            </tr>
+          </thead>
+          <tbody id="entriesTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API = 'http://localhost:5000/students';
+const form = document.getElementById('entryForm');
+const entriesTable = document.getElementById('entriesTable');
+const clearBtn = document.getElementById('clearBtn');
+const submitBtn = document.getElementById('submitBtn');
+
+let editingId = null;
+
+// simple escaper to avoid XSS when injecting HTML
+function escapeHtml(unsafe) {
+  return (unsafe ?? '').toString()
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+async function fetchStudents() {
+  try {
+    const res = await fetch(API);
+    if (!res.ok) throw new Error('Failed to load');
+    const students = await res.json();
+    renderTable(students);
+  } catch (err) {
+    console.error(err);
+    alert('Could not load entries. Is the backend running?');
+  }
+}
+
+function renderTable(students) {
+  entriesTable.innerHTML = '';
+  if (!students.length) {
+    entriesTable.innerHTML = '<tr><td class="p-3" colspan="5">No entries yet.</td></tr>';
+    return;
+  }
+  students.forEach(s => {
+    const tr = document.createElement('tr');
+    tr.dataset.id = s._id;
+    tr.innerHTML = `
+      <td class="p-3">${escapeHtml(s.name)}</td>
+      <td class="p-3 text-gray-600">${escapeHtml(s.email)}</td>
+      <td class="p-3">${escapeHtml(s.phone || '')}</td>
+      <td class="p-3">
+        <span class="px-3 py-1 rounded-full text-sm ${s.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}">
+          ${escapeHtml(s.status)}
+        </span>
+      </td>
+      <td class="p-3">
+        <button data-id="${s._id}" class="edit-btn mr-2 text-blue-600">Edit</button>
+        <button data-id="${s._id}" class="delete-btn text-red-600">Delete</button>
+      </td>
+    `;
+    entriesTable.appendChild(tr);
+  });
+}
+
+// handle form submit (create or update)
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const payload = {
+    name: document.getElementById('name').value.trim(),
+    email: document.getElementById('email').value.trim(),
+    phone: document.getElementById('phone').value.trim(),
+    status: document.getElementById('status').value,
+    description: document.getElementById('description').value.trim()
+  };
+
+  // basic client validation
+  if (!payload.name || !payload.email) {
+    alert('Name and Email are required.');
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = editingId ? 'Updating...' : 'Saving...';
+
+  try {
+    const url = editingId ? `${API}/${editingId}` : API;
+    const method = editingId ? 'PUT' : 'POST';
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Server error');
+    }
+    // refresh table from server to keep consistent
+    await fetchStudents();
+    clearForm();
+  } catch (err) {
+    console.error(err);
+    alert('Error: ' + err.message);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Submit';
+    editingId = null;
+  }
+});
+
+// delegation for edit/delete buttons
+entriesTable.addEventListener('click', async (e) => {
+  const id = e.target.dataset.id;
+  if (e.target.classList.contains('edit-btn')) {
+    // load single entry and fill form
+    try {
+      const res = await fetch(`${API}/${id}`);
+      if (!res.ok) throw new Error('Entry not found');
+      const s = await res.json();
+      document.getElementById('name').value = s.name || '';
+      document.getElementById('email').value = s.email || '';
+      document.getElementById('phone').value = s.phone || '';
+      document.getElementById('status').value = s.status || 'Active';
+      document.getElementById('description').value = s.description || '';
+      editingId = id;
+      submitBtn.textContent = 'Update';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) {
+      console.error(err);
+      alert('Failed to load entry for edit');
+    }
+  } else if (e.target.classList.contains('delete-btn')) {
+    if (!confirm('Delete this entry?')) return;
+    try {
+      const res = await fetch(`${API}/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Delete failed');
+      await fetchStudents();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete entry');
+    }
+  }
+});
+
+clearBtn.addEventListener('click', () => clearForm());
+
+function clearForm() {
+  form.reset();
+  editingId = null;
+  submitBtn.textContent = 'Submit';
+}
+
+// initial load
+fetchStudents();
+</script>
+</body>
+</html>
